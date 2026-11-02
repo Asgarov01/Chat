@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Gizli Söhbət</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-bg-color,#fbf9f6);
+  --fg:var(--tg-theme-text-color,#1d1b22);
+  --hint:var(--tg-theme-hint-color,#7b7685);
+  --sec:var(--tg-theme-secondary-bg-color,#efeaf3);
+  --acc:var(--tg-theme-button-color,#6d3fd1);
+  --accfg:var(--tg-theme-button-text-color,#fff);
+  --danger:#c4314b;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  display:flex;flex-direction:column;height:100dvh;padding-bottom:env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--sec)}
+.mask{width:38px;height:38px;border-radius:50%;background:var(--acc);color:var(--accfg);display:grid;place-items:center;font-weight:700;flex:none}
+.who{flex:1;min-width:0}
+.who b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{color:var(--hint)}
+.tools{display:flex;gap:6px}
+.tools button{border:0;background:transparent;color:var(--hint);font-size:13px;padding:6px 8px;border-radius:8px}
+.tools button.warn{color:var(--danger)}
+#log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:6px}
+.m{max-width:80%;padding:8px 12px;border-radius:16px;word-wrap:break-word;white-space:pre-wrap}
+.me{align-self:flex-end;background:var(--acc);color:var(--accfg);border-bottom-right-radius:4px}
+.you{align-self:flex-start;background:var(--sec);border-bottom-left-radius:4px}
+.sys{align-self:center;color:var(--hint);font-size:13px;text-align:center;padding:4px 0}
+.sys.err{color:var(--danger)}
+#empty{margin:auto;text-align:center;color:var(--hint);padding:0 24px}
+#empty h2{color:var(--fg);font-size:20px;margin-bottom:6px}
+footer{padding:8px 10px;display:flex;gap:8px;background:var(--bg)}
+#txt{flex:1;border:1px solid var(--sec);background:var(--sec);color:var(--fg);border-radius:20px;padding:10px 14px;font:inherit;outline:none}
+#txt:focus{border-color:var(--acc)}
+button.main{border:0;background:var(--acc);color:var(--accfg);border-radius:20px;padding:0 18px;font:inherit;font-weight:600;min-height:42px}
+button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button:disabled{opacity:.4}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="mask" id="av">?</div>
+  <div class="who"><b id="peer">Gizli Söhbət</b><small id="state">Qoşulur…</small></div>
+  <div class="tools hide" id="tools">
+    <button id="blk">Blokla</button>
+    <button id="rep" class="warn">Şikayət</button>
+  </div>
+</header>
+
+<div id="log">
+  <div id="empty">
+    <h2>Təsadüfi biri ilə yaz</h2>
+    <p>Adın və istifadəçi adın göstərilmir. Sənə təsadüfi ləqəb verilir.</p>
+  </div>
+</div>
+
+<footer>
+  <input id="txt" class="hide" maxlength="500" placeholder="Mesaj yaz…" autocomplete="off">
+  <button class="main hide" id="send">Göndər</button>
+  <button class="main" id="find" disabled>Söhbət axtar</button>
+  <button class="main hide" id="next">Növbəti</button>
+</footer>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const $ = (id) => document.getElementById(id);
+const log = $("log"), txt = $("txt");
+let ws, mode = "idle", tTyping = 0, retry = 0, banned = false;
+
+function setMode(m, label) {
+  mode = m;
+  const chat = m === "chat";
+  $("tools").classList.toggle("hide", !chat);
+  txt.classList.toggle("hide", !chat);
+  $("send").classList.toggle("hide", !chat);
+  $("next").classList.toggle("hide", !chat);
+  $("find").classList.toggle("hide", chat);
+  $("find").textContent = m === "waiting" ? "Ləğv et" : "Söhbət axtar";
+  $("find").disabled = !ws || ws.readyState !== 1;
+  $("state").textContent = label;
+  if (chat) txt.focus();
+}
+function add(cls, text) {
+  $("empty")?.remove();
+  const d = document.createElement("div");
+  d.className = "m " + cls;
+  if (cls.startsWith("sys")) d.className = cls;
+  d.textContent = text;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+  return d;
+}
+function sys(t, err) { add("sys" + (err ? " err" : ""), t); }
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function connect() {
+  if (!tg || !tg.initData) {
+    $("state").textContent = "Telegram-dan aç";
+    $("empty").querySelector("p").textContent = "Bu tətbiq yalnız Telegram Mini App kimi işləyir.";
+    return;
+  }
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws?d=${encodeURIComponent(tg.initData)}`);
+  ws.onopen = () => { retry = 0; };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    switch (m.t) {
+      case "hello":
+        setMode("idle", `Sən: ${m.nick} · onlayn: ${m.online}`);
+        break;
+      case "waiting":
+        setMode("waiting", "Kimsə axtarılır…");
+        sys("Kimsə axtarılır…");
+        break;
+      case "matched":
+        log.innerHTML = "";
+        $("peer").textContent = m.nick;
+        $("av").textContent = m.nick.slice(-2);
+        setMode("chat", "Söhbət başladı");
+        sys("Qoşuldun. Salam de!");
+        break;
+      case "msg":
+        $("state").textContent = "Söhbət davam edir";
+        add("you", m.text);
+        break;
+      case "typing":
+        $("state").textContent = "yazır…";
+        clearTimeout(tTyping);
+        tTyping = setTimeout(() => ($("state").textContent = "Söhbət davam edir"), 1500);
+        break;
+      case "left":
+        sys("Qarşı tərəf söhbəti tərk etdi.");
+        resetPeer();
+        break;
+      case "reported": sys("Şikayət göndərildi. Söhbət bağlandı."); resetPeer(); break;
+      case "blocked": sys("İstifadəçi bloklandı."); resetPeer(); break;
+      case "warn": sys(m.text, true); break;
+      case "banned":
+        banned = true;
+        setMode("idle", "Hesab müvəqqəti məhdudlaşdırılıb");
+        $("find").disabled = true;
+        sys("Şikayətlər səbəbilə 24 saatlıq məhdudiyyət tətbiq olunub.", true);
+        break;
+    }
+  };
+  ws.onclose = () => {
+    if (banned) return;
+    setMode("idle", "Bağlantı kəsildi, yenidən qoşulur…");
+    $("find").disabled = true;
+    setTimeout(connect, Math.min(1000 * 2 ** retry++, 15000));
+  };
+}
+function resetPeer() {
+  $("peer").textContent = "Gizli Söhbət";
+  $("av").textContent = "?";
+  setMode("idle", "Yeni söhbət üçün axtar");
+}
+
+$("find").onclick = () => {
+  if (mode === "waiting") { send({ t: "stop" }); setMode("idle", "Axtarış ləğv edildi"); }
+  else send({ t: "find" });
+};
+setInterval(() => send({ t: "ping" }), 240000); // server yuxuya getməsin
+$("next").onclick = () => { log.innerHTML = ""; send({ t: "next" }); };
+$("rep").onclick = () => { if (confirm("Bu istifadəçini şikayət edirsən?")) send({ t: "report" }); };
+$("blk").onclick = () => { if (confirm("Bu istifadəçi bloklansın?")) send({ t: "block" }); };
+
+function sendMsg() {
+  const v = txt.value.trim();
+  if (!v) return;
+  add("me", v);
+  send({ t: "msg", text: v });
+  txt.value = "";
+}
+$("send").onclick = sendMsg;
+txt.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMsg(); });
+let lastT = 0;
+txt.addEventListener("input", () => { const n = Date.now(); if (n - lastT > 1500) { lastT = n; send({ t: "typing" }); } });
+
+connect();
+</script>
+</body>
+</html>
