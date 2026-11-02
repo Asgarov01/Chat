@@ -1,38 +1,36 @@
+  mode = "waiting"; render();
+  send({ t: "find" });
+};
+$("cancel").onclick = () => {
+  mode = "idle"; render();
+  send({ t: "stop" });
+};
+$("next").onclick = () => {
+  log.innerHTML = ""; $("menu").hidden = true;
+  mode = "waiting"; render();
+  send({ t: "next" });
+};
+$("more").onclick = (e) => { e.stopPropagation(); $("menu").hidden = !$("menu").hidden; };
+document.addEventListener("click", () => { $("menu").hidden = true; });
+$("rep").onclick = () => ask("Bu istifadəçini şikayət edirsən?", () => send({ t: "report" }));
+$("blk").onclick = () => ask("Bu istifadəçi bloklansın?", () => send({ t: "block" }));
 
-<!doctype html>
-<html lang="az">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="theme-color" content="#15132b">
-<title>Gizli Söhbət</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Unbounded:wght@600;700&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg:#15132b; --s1:#1f1c3d; --s2:#2b2755; --line:#3a3573;
-  --tx:#f4f1ff; --hint:#a39ecf;
-  --gold:#f6b93b; --goldfg:#2a1d00; --red:#ff6b7a; --live:#5ee08a;
-  --display:"Unbounded","Manrope",system-ui,sans-serif;
-  --body:"Manrope",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+function sendMsg() {
+  const v = txt.value.trim();
+  if (!v || mode !== "chat") return;
+  add("me", v);
+  send({ t: "msg", text: v });
+  txt.value = "";
 }
-*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
-[hidden]{display:none!important}
-html,body{height:100%;background:var(--bg);color:var(--tx)}
-body{font:16px/1.45 var(--body);height:var(--tg-viewport-stable-height,100dvh);overflow:hidden;display:flex;flex-direction:column}
-button{font:inherit;color:inherit;border:0;cursor:pointer}
-button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+$("send").onclick = () => { sendMsg(); txt.focus(); };
+txt.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMsg(); });
+let lastT = 0;
+txt.addEventListener("input", () => { const n = Date.now(); if (n - lastT > 1500) { lastT = n; send({ t: "typing" }); } });
 
-.screen{flex:1;min-height:0;display:none}
-body[data-mode="idle"] #home, body[data-mode="waiting"] #home{display:flex}
-body[data-mode="chat"] #chat{display:flex}
+setInterval(() => send({ t: "ping" }), 240000); // server yuxuya getməsin
 
-/* ---------- Ana ekran ---------- */
-#home{flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px 28px calc(24px + env(safe-area-inset-bottom));gap:0;position:relative}
-.online{position:absolute;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--s1);border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:13px;color:var(--hint);white-space:nowrap}
-.online i{width:8px;height:8px;border-radius:50%;background:var(--live)}
-
-.orb{position:relative;width:230px;height:230px;display:grid;place-items:center;margin-bottom:28px}
-.orb .core{position:relative;z-index:2;width:128px;height:128px;border-radius:50%;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+render();
+connect();
+</script>
+</body>
+</html>
